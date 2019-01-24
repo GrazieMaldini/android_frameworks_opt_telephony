@@ -233,6 +233,32 @@ public class SubscriptionController extends ISub.Stub {
         if (DBG) logdl("[SubscriptionController] init by Phone");
     }
 
+    /**
+     * Make sure the caller can read phone state which requires holding the
+     * READ_PHONE_STATE permission and the OP_READ_PHONE_STATE app op being
+     * set to MODE_ALLOWED.
+     *
+     * @param callingPackage The package claiming to make the IPC.
+     * @param message The name of the access protected method.
+     *
+     * @throws SecurityException if the caller does not have READ_PHONE_STATE permission.
+     */
+    private boolean canReadPhoneState(String callingPackage, String message) {
+        try {
+            mContext.enforceCallingOrSelfPermission(
+                    android.Manifest.permission.READ_PRIVILEGED_PHONE_STATE, message);
+
+            // SKIP checking run-time permission since self or using PRIVILEDGED permission
+            return true;
+        } catch (SecurityException e) {
+            mContext.enforceCallingOrSelfPermission(android.Manifest.permission.READ_PHONE_STATE,
+                    message);
+        }
+
+        return mAppOps.noteOp(AppOpsManager.OP_READ_PHONE_STATE, Binder.getCallingUid(),
+                callingPackage) == AppOpsManager.MODE_ALLOWED;
+    }
+
     protected void enforceModifyPhoneState(String message) {
         mContext.enforceCallingOrSelfPermission(
                 android.Manifest.permission.MODIFY_PHONE_STATE, message);
@@ -926,8 +952,10 @@ public class SubscriptionController extends ISub.Stub {
                     new String[]{SubscriptionManager.UNIQUE_KEY_SUBSCRIPTION_ID,
                             SubscriptionManager.SIM_SLOT_INDEX, SubscriptionManager.NAME_SOURCE,
                             SubscriptionManager.ICC_ID, SubscriptionManager.CARD_ID},
-                    SubscriptionManager.ICC_ID + "=?" + " OR " + SubscriptionManager.ICC_ID + "=?",
-                            new String[]{iccId, IccUtils.getDecimalSubstring(iccId)}, null);
+                    SubscriptionManager.ICC_ID + "=?" + " OR " + SubscriptionManager.ICC_ID + "=?"
+                             + " OR " + SubscriptionManager.ICC_ID + "=?" + " collate nocase",
+                            new String[]{iccId, IccUtils.getDecimalSubstring(iccId), fullIccId},
+                            null);
 
             boolean setDisplayName = false;
             try {
@@ -969,9 +997,6 @@ public class SubscriptionController extends ISub.Stub {
                         resolver.update(SubscriptionManager.CONTENT_URI, value,
                                 SubscriptionManager.UNIQUE_KEY_SUBSCRIPTION_ID +
                                         "=" + Long.toString(subId), null);
-
-                        // Refresh the Cache of Active Subscription Info List
-                        refreshCachedActiveSubscriptionInfoList();
                     }
 
                     if (DBG) logdl("[addSubInfoRecord] Record already exists");
@@ -1065,11 +1090,11 @@ public class SubscriptionController extends ISub.Stub {
                         SubscriptionManager.UNIQUE_KEY_SUBSCRIPTION_ID +
                                 "=" + Long.toString(subId), null);
 
-                // Refresh the Cache of Active Subscription Info List
-                refreshCachedActiveSubscriptionInfoList();
-
                 if (DBG) logdl("[addSubInfoRecord] sim name = " + nameToSet);
             }
+
+            // Refresh the Cache of Active Subscription Info List
+            refreshCachedActiveSubscriptionInfoList();
 
             // Once the records are loaded, notify DcTracker
             sPhones[slotIndex].updateDataConnectionTracker();
@@ -1113,9 +1138,6 @@ public class SubscriptionController extends ISub.Stub {
         }
 
         Uri uri = resolver.insert(SubscriptionManager.CONTENT_URI, value);
-
-        // Refresh the Cache of Active Subscription Info List
-        refreshCachedActiveSubscriptionInfoList();
 
         return uri;
     }
@@ -2209,35 +2231,45 @@ public class SubscriptionController extends ISub.Stub {
      */
     @VisibleForTesting(visibility = VisibleForTesting.Visibility.PRIVATE)
     public void migrateImsSettings() {
-        migrateImsSettingHelper(
-                Settings.Global.ENHANCED_4G_MODE_ENABLED,
-                SubscriptionManager.ENHANCED_4G_MODE_ENABLED);
-        migrateImsSettingHelper(
-                Settings.Global.VT_IMS_ENABLED,
-                SubscriptionManager.VT_IMS_ENABLED);
-        migrateImsSettingHelper(
-                Settings.Global.WFC_IMS_ENABLED,
-                SubscriptionManager.WFC_IMS_ENABLED);
-        migrateImsSettingHelper(
-                Settings.Global.WFC_IMS_MODE,
-                SubscriptionManager.WFC_IMS_MODE);
-        migrateImsSettingHelper(
-                Settings.Global.WFC_IMS_ROAMING_MODE,
-                SubscriptionManager.WFC_IMS_ROAMING_MODE);
-        migrateImsSettingHelper(
-                Settings.Global.WFC_IMS_ROAMING_ENABLED,
-                SubscriptionManager.WFC_IMS_ROAMING_ENABLED);
+        SubscriptionManager sm = SubscriptionManager.from(mContext);
+        if (sm != null) {
+            List<SubscriptionInfo> subInfoList = sm.getAllSubscriptionInfoList();
+            for (SubscriptionInfo si : subInfoList) {
+                int subId = si.getSubscriptionId();
+                if (subId == SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
+                    continue;
+                }
+                migrateImsSettingHelper(
+                        Settings.Global.ENHANCED_4G_MODE_ENABLED + subId,
+                        SubscriptionManager.ENHANCED_4G_MODE_ENABLED, subId);
+                migrateImsSettingHelper(
+                        Settings.Global.VT_IMS_ENABLED + subId,
+                        SubscriptionManager.VT_IMS_ENABLED, subId);
+                migrateImsSettingHelper(
+                        Settings.Global.WFC_IMS_ENABLED + subId,
+                        SubscriptionManager.WFC_IMS_ENABLED, subId);
+                migrateImsSettingHelper(
+                        Settings.Global.WFC_IMS_MODE + subId,
+                        SubscriptionManager.WFC_IMS_MODE, subId);
+                migrateImsSettingHelper(
+                        Settings.Global.WFC_IMS_ROAMING_MODE + subId,
+                        SubscriptionManager.WFC_IMS_ROAMING_MODE, subId);
+                migrateImsSettingHelper(
+                        Settings.Global.WFC_IMS_ROAMING_ENABLED + subId,
+                        SubscriptionManager.WFC_IMS_ROAMING_ENABLED, subId);
+            }
+        }
     }
 
-    private void migrateImsSettingHelper(String settingGlobal, String subscriptionProperty) {
+    private void migrateImsSettingHelper(String settingGlobal, String subscriptionProperty,
+                int subId) {
         ContentResolver resolver = mContext.getContentResolver();
-        int defaultSubId = getDefaultVoiceSubId();
         try {
             int prevSetting = Settings.Global.getInt(resolver, settingGlobal);
 
             if (prevSetting != DEPRECATED_SETTING) {
                 // Write previous setting into Subscription DB.
-                setSubscriptionPropertyIntoContentResolver(defaultSubId, subscriptionProperty,
+                setSubscriptionPropertyIntoContentResolver(subId, subscriptionProperty,
                         Integer.toString(prevSetting), resolver);
                 // Write global setting value with DEPRECATED_SETTING making sure
                 // migration only happen once.

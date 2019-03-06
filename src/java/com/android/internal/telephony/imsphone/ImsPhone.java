@@ -1951,6 +1951,20 @@ public class ImsPhone extends ImsPhoneBase {
         return true;
     }
 
+    public boolean canProcessRttRequest() {
+        // Process only if Carrier supports RTT and RTT is on
+        if (!(QtiImsExtUtils.isRttSupported(mPhoneId, mContext) &&
+                    QtiImsExtUtils.isRttOn(mContext))) {
+            Rlog.d(LOG_TAG, "RTT: canProcessRttRequest RTT is not supported/off");
+            return false;
+        }
+        Rlog.d(LOG_TAG, "RTT: canProcessRttRequest rtt supported = " +
+                QtiImsExtUtils.isRttSupported(mPhoneId, mContext) + ", is Rtt on = " +
+                QtiImsExtUtils.isRttOn(mContext) + ", Rtt mode = " +
+                QtiImsExtUtils.getRttOperatingMode(mContext));
+        return true;
+    }
+
     public boolean isRttSupported() {
         if (!QtiImsExtUtils.isRttSupported(mPhoneId, mContext)) {
             Rlog.d(LOG_TAG, "RTT: RTT is not supported");

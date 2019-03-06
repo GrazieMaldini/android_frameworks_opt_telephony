@@ -823,10 +823,16 @@ public class ImsPhoneCallTrackerTest extends TelephonyTest {
             Assert.fail("unexpected exception thrown" + ex.getMessage());
         }
         verify(mImsPhone, times(1)).startOnHoldTone(nullable(Connection.class));
-    }
-
+    }    
+    
     @Test
     @SmallTest
+    public void testSipNotFoundRemap() {
+        assertEquals(DisconnectCause.INVALID_NUMBER,
+                mCTUT.getDisconnectCauseFromReasonInfo(
+                        new ImsReasonInfo(ImsReasonInfo.CODE_SIP_NOT_FOUND, 0), Call.State.ACTIVE));
+    }
+    
     public void testCallResumeStateNotResetByHoldFailure() throws ImsException {
         mCTUT.setSwitchingFgAndBgCallsValue(true);
         if (mImsCallListener != null) {

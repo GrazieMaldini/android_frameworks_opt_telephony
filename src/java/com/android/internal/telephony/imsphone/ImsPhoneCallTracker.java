@@ -3695,9 +3695,6 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                     Connection newConnection =
                             mPhone.getDefaultPhone().dial(mLastDialString, mLastDialArgs);
                     oldConnection.onOriginalConnectionReplaced(newConnection);
-                } catch (CallStateException e) {
-                    sendCallStartFailedDisconnect(callInfo.first, callInfo.second);
-                }
 
                     final ImsCall imsCall = mForegroundCall.getImsCall();
                     final ImsCallProfile callProfile = imsCall.getCallProfile();
